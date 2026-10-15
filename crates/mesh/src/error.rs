@@ -1,0 +1,61 @@
+use holochain_moq_protocol::AgentPubKeyB64;
+
+#[derive(Debug, thiserror::Error)]
+pub enum MeshError {
+    #[error("invalid track name {0:?}")]
+    InvalidTrackName(String),
+    #[error("invalid roster: {0}")]
+    InvalidRoster(String),
+    #[error("agent {0} is not in this mesh's roster")]
+    NotInRoster(AgentPubKeyB64),
+    #[error("no live session with agent {0}")]
+    NotConnected(AgentPubKeyB64),
+    #[error("invalid race id {0:?}")]
+    InvalidRaceId(String),
+    #[error("invalid source {0:?}")]
+    InvalidSource(String),
+    #[error("a player's source may only be published by, and read from, that player")]
+    NotOwnSource,
+    #[error("payload of {len} bytes exceeds the {mode:?} limit of {max}")]
+    PayloadTooLarge {
+        len: usize,
+        max: usize,
+        mode: crate::DeliveryMode,
+    },
+    #[error("reliable track history is full ({objects} objects, {bytes} bytes)")]
+    HistoryFull { objects: u64, bytes: u64 },
+    /// WP6: a `ReliableOrdered` subscription cannot resume at `next_seq`
+    /// because the publisher's bounded history no longer holds it. Sticky:
+    /// the subscription stays failed; nothing after the gap is delivered.
+    #[error("reliable history expired: cannot resume at sequence {next_seq} ({reason})")]
+    HistoryExpired { next_seq: u64, reason: String },
+    /// WP6: a `ReliableOrdered` object arrived out of sequence (a gap). Sticky.
+    #[error("reliable sequence gap: expected {expected}, got {got}")]
+    SequenceGap { expected: u64, got: u64 },
+    /// WP9: the peer broke the delivery contract on this track (see
+    /// [`crate::LimitViolation`]). Sticky: nothing more is read from it.
+    #[error("peer exceeded a delivery limit: {0}")]
+    LimitExceeded(String),
+    /// WP6: the peer left, or reconnection to it gave up.
+    #[error("peer {0} is gone (left or reconnect gave up)")]
+    PeerGone(AgentPubKeyB64),
+    #[error("the mesh is closed")]
+    Closed,
+    #[error("transport: {0:#}")]
+    Transport(#[from] anyhow::Error),
+}
+
+/// E6.INTERNET.2: a dial or session-handshake failure that retrying cannot
+/// fix: the remote failed authentication, or refused this endpoint by identity
+/// or membership. A transport wraps such failures in this type; initial dialing
+/// stops at the first one instead of retrying it.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct TerminalDialError(pub String);
+
+/// Is `e` (or anything it wraps) a [`TerminalDialError`]?
+pub fn is_terminal_dial_error(e: &anyhow::Error) -> bool {
+    // A context value is only reachable through anyhow's downcast (the
+    // wrapper type in `chain()` is private); a source error through `chain()`.
+    e.downcast_ref::<TerminalDialError>().is_some() || e.chain().any(|c| c.is::<TerminalDialError>())
+}
