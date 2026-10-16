@@ -1,5 +1,5 @@
 // Game window preload (WP10 E3): `window.kartNet`, the game's only door to
-// the network control plane. Eleven controls, a fixed binary-channel opener,
+// the network control plane. Thirteen controls, a fixed binary-channel opener,
 // and one event subscription;
 // no Node, filesystem, shell, generic IPC, Holochain token or zome call.
 // Arguments are checked again in main (src/main/kartNet/validate.ts).
@@ -52,6 +52,8 @@ contextBridge.exposeInMainWorld(
     sessionStop: () => call('kart-net:session-stop'),
     /** E6.4: this race scene is loaded; the host may schedule the shared start. */
     sessionReady: () => call('kart-net:session-ready'),
+    /** -> { online } other players seen in the last 2-4 minutes (approximate) */
+    onlineCount: () => call('kart-net:online-count'),
     openTestChannel: () => { ipcRenderer.send('kart-net:binary-open'); },
     raceStart: (lobbyId: string) => call('kart-net:race-start', lobbyId),
     raceGet: (lobbyId: string) => call('kart-net:race-get', lobbyId),

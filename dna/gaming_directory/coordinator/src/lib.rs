@@ -407,6 +407,47 @@ pub fn get_recent_endpoint_advertisements(
     Ok(ads)
 }
 
+/// Width of one online-count bucket. An open app marks itself at least once
+/// per bucket (the desktop every 60 s), so the current and previous buckets
+/// hold everyone seen in the last 2-4 minutes.
+const ONLINE_BUCKET_MS: i64 = 120_000;
+
+fn online_path(bucket: i64) -> ExternResult<AnyLinkableHash> {
+    path_hash(&format!("online.{bucket}"))
+}
+
+/// Count the caller as online in the current bucket: an `Anchor` link from
+/// `online.<bucket>` to the caller's own key (no integrity change, so the
+/// DNA hash is unchanged). Repeats are harmless: readers count distinct
+/// authors.
+#[hdk_extern]
+pub fn mark_online(_: ()) -> ExternResult<()> {
+    let me = agent_info()?.agent_initial_pubkey;
+    let bucket = now_millis()? / ONLINE_BUCKET_MS;
+    create_link(online_path(bucket)?, me, LinkTypes::Anchor, ())?;
+    Ok(())
+}
+
+/// How many *other* agents marked themselves online in the current or
+/// previous bucket. Only links whose target is their author's own key count
+/// (`Anchor` links are not validated). Approximate by design: clock skew and
+/// DHT propagation shift it by a bucket.
+#[hdk_extern]
+pub fn count_online(_: ()) -> ExternResult<u32> {
+    let me = agent_info()?.agent_initial_pubkey;
+    let bucket = now_millis()? / ONLINE_BUCKET_MS;
+    let mut others = std::collections::HashSet::new();
+    for b in [bucket - 1, bucket] {
+        let query = LinkQuery::try_new(online_path(b)?, LinkTypes::Anchor)?;
+        for link in get_links(query, GetStrategy::default())? {
+            if link.author != me && link.target.into_agent_pub_key().as_ref() == Some(&link.author) {
+                others.insert(link.author);
+            }
+        }
+    }
+    Ok(others.len() as u32)
+}
+
 /// Register a game under the caller's key (`game.developer` must be the
 /// caller, and the caller must not have registered this `game_id` before -
 /// both validation). Other developers' games with the same id are different

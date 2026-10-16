@@ -21,6 +21,8 @@ export const COMMANDS = [
   'session_status',
   'session_stop',
   'session_ready',
+  'online_mark',
+  'online_count',
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 

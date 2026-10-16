@@ -2,8 +2,8 @@
 // through Kangaroo's admin websocket (the sidecar never sees it):
 // - a capability on the turbo_kart cell, ASSIGNED to the sidecar's own signing
 //   key, for the seven lobby/race functions kart-net calls;
-// - a separate assigned directory grant for publishing presence and two
-//   read-only endpoint-binding queries;
+// - a separate assigned directory grant for publishing presence, two
+//   read-only endpoint-binding queries and the online count;
 // - one single-use, 30 s app token per app;
 // - two dedicated app interfaces, each bound to one app and allowing only the
 //   sidecar origin (a browser page cannot use them), attached once and reused.
@@ -34,7 +34,7 @@ export const KART_LOBBY_FUNCTIONS = [
   'start_race',
   'get_race',
 ] as const;
-export const PLATFORM_FUNCTIONS = ['publish_signed_presence', 'get_recent_endpoint_bindings', 'get_endpoint_binding'] as const;
+export const PLATFORM_FUNCTIONS = ['publish_signed_presence', 'get_recent_endpoint_bindings', 'get_endpoint_binding', 'mark_online', 'count_online'] as const;
 export const TOKEN_EXPIRY_SECONDS = 30;
 export const CAP_GRANT_TAG = 'turbo-kart-sidecar';
 

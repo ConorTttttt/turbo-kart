@@ -127,6 +127,16 @@ impl HolochainPeerDirectory {
         Ok(())
     }
 
+    /// Count this agent as online for the directory's online count.
+    pub async fn mark_online(&self) -> Result<(), DirectoryError> {
+        self.call("mark_online", &()).await
+    }
+
+    /// How many other agents marked themselves online in the last few minutes.
+    pub async fn count_online(&self) -> Result<u32, DirectoryError> {
+        self.call("count_online", &()).await
+    }
+
     /// Publish presence now: `endpoint`, valid for `PRESENCE_TTL_MS`.
     pub async fn publish_presence(
         &self,

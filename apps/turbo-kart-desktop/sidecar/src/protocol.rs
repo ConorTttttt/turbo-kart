@@ -222,9 +222,13 @@ pub enum Command {
     SessionStop,
     /// E6.4: the renderer's race scene is loaded (readiness for the start schedule).
     SessionReady,
+    /// Count this player as online (main's timer only; not a renderer channel).
+    OnlineMark,
+    /// How many other players are online.
+    OnlineCount,
 }
 
-pub const COMMANDS: [&str; 12] = [
+pub const COMMANDS: [&str; 14] = [
     "net_init",
     "lobby_create",
     "lobby_list",
@@ -237,6 +241,8 @@ pub const COMMANDS: [&str; 12] = [
     "session_status",
     "session_stop",
     "session_ready",
+    "online_mark",
+    "online_count",
 ];
 
 impl Command {
@@ -290,6 +296,8 @@ impl Command {
             "session_status" => { typed::<Empty>(command,args)?; Self::SessionStatus },
             "session_stop" => { typed::<Empty>(command,args)?; Self::SessionStop },
             "session_ready" => { typed::<Empty>(command,args)?; Self::SessionReady },
+            "online_mark" => { typed::<Empty>(command,args)?; Self::OnlineMark },
+            "online_count" => { typed::<Empty>(command,args)?; Self::OnlineCount },
             "race_start" => Self::RaceStart { lobby_id: typed::<LobbyIdArgs>(command, args)?.lobby_id },
             "race_get" => Self::RaceGet { lobby_id: typed::<LobbyIdArgs>(command, args)?.lobby_id },
             "lobby_leave" => Self::LobbyLeave {

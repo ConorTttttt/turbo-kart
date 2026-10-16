@@ -81,6 +81,8 @@ export function validate(command: CommandName, input: unknown[]): Validated {
     case 'session_status':
     case 'session_stop':
     case 'session_ready':
+    case 'online_mark':
+    case 'online_count':
     case 'net_init':
       if (a !== undefined) return bad(`${command} takes no arguments`);
       return { ok: true, args: {} };

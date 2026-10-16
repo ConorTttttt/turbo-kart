@@ -112,6 +112,13 @@ Commands (the allowlist; nothing else is dispatched):
 | `lobby_get` | `{"lobby_id": str}` | `LobbyState` |
 | `lobby_join` | `JoinLobbyRequest` | `LobbyState` |
 | `lobby_leave` | `{"lobby_id": str}` | `LeaveOutcome` |
+| `online_mark` | `{}` | `{}` (main's 60 s timer only; no renderer channel) |
+| `online_count` | `{}` | `{"online": u32}`: other agents marked in the last 2–4 min |
+
+`online_mark` / `online_count` need no `net_init`; they call the directory's
+`mark_online` / `count_online` (an `Anchor` link per agent in a 120 s `online.<bucket>`
+path, counted by distinct author, coordinator-only so the DNA hash is unchanged). Like
+every control-plane command they answer `busy` during a race session.
 
 `args` reject unknown fields. Error codes: kart-net's unchanged (`invalid_input`,
 `not_found`, `agent_mismatch`, `control_plane`), plus `not_initialised`,

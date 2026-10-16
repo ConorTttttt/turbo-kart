@@ -1,4 +1,4 @@
-// Electron side of kart-net: eleven fixed control channels, lobby events,
+// Electron side of kart-net: thirteen fixed control channels, lobby events,
 // one bounded binary diagnostic channel, and the sidecar lifecycle.
 // The renderer never chooses what runs: the binary path, its arguments and
 // the conductor credentials are all decided here.
@@ -32,6 +32,7 @@ export const KART_NET_CHANNELS: Record<string, CommandName> = {
   'kart-net:session-status': 'session_status',
   'kart-net:session-stop': 'session_stop',
   'kart-net:session-ready': 'session_ready',
+  'kart-net:online-count': 'online_count',
 };
 /** Main → renderer: kart-net's lobby events, nothing else. */
 export const KART_NET_EVENT_CHANNEL = 'kart-net:lobby-event';
@@ -39,6 +40,8 @@ export const KART_NET_EVENT_CHANNEL = 'kart-net:lobby-event';
 export type Reply = { ok: true; value: unknown } | { ok: false; error: KartNetError };
 
 let HOST: SidecarHost | undefined;
+/** How often main counts this player as online (the DNA's bucket is 120 s). */
+const ONLINE_MARK_MS = 60_000;
 let attachBinary: () => void = () => undefined;
 let gameWindow: () => BrowserWindow | null | undefined = () => undefined;
 
@@ -178,6 +181,13 @@ export function startKartNet(admin: AdminWebsocket, binaryArgs?: string[]): Prom
       const win = gameWindow();
       if (win && !win.isDestroyed()) win.webContents.send(KART_NET_EVENT_CHANNEL, event);
     });
+    // Counted as online while the app runs, not only on the multiplayer
+    // screen. The sidecar refuses (busy) during a race; the next tick retries.
+    const mark = () => {
+      if (HOST?.status === 'ready') void HOST.request('online_mark', {}).catch(() => undefined);
+    };
+    setInterval(mark, ONLINE_MARK_MS).unref();
+    HOST.on('status', (status) => { if (status === 'ready') mark(); });
   }
   return HOST.start();
 }

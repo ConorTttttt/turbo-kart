@@ -82,6 +82,10 @@ impl NetSlot {
     }
 }
 
+fn control_plane(e: impl std::fmt::Display) -> IpcError {
+    IpcError::new(IpcErrorCode::ControlPlane, e.to_string())
+}
+
 fn json<T: serde::Serialize>(v: T) -> Result<Value, IpcError> {
     serde_json::to_value(v).map_err(|e| IpcError::new(IpcErrorCode::Internal, e.to_string()))
 }
@@ -169,6 +173,8 @@ impl Backend for NetSlot {
             Command::LobbyGet { lobby_id } => json(self.net()?.lobby_get(&lobby_id).await?)?,
             Command::LobbyJoin(r) => json(self.net()?.lobby_join(r).await?)?,
             Command::LobbyLeave { lobby_id } => json(self.net()?.lobby_leave(&lobby_id).await?)?,
+            Command::OnlineMark => { self.parts.directory.mark_online().await.map_err(control_plane)?; json(serde_json::json!({}))? },
+            Command::OnlineCount => json(serde_json::json!({"online": self.parts.directory.count_online().await.map_err(control_plane)?}))?,
         };
         Ok((value, None))
     }
