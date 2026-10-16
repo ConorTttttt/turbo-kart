@@ -29,9 +29,11 @@ export function body(value: unknown): Buffer {
   if (b[4] === 1 && b[5] === PROGRESS_LANE && b.length - HEADER !== PROGRESS_BODY_LEN) throw new Error('progress must be one progress body');
   if (b[4] === 1 && b[5] === PROGRESS_EVENT_LANE) throw new Error('progress events are never sent');
   // A bundle names its slots inside (Rust checks host, slots and every state again).
+  // Never delivered; the sidecar's reply (kind 2) to a bundle send comes back on this lane.
   if (b[5] === AI_BUNDLE_LANE) {
     const n = (b.length - HEADER) / AI_BUNDLE_ENTRY;
-    if (b[4] !== 1 || !Number.isInteger(n) || n < 1 || n > MAX_AI_BUNDLE) throw new Error('an AI bundle is 1..7 slot states, and only sent');
+    if (b[4] === 3) throw new Error('AI bundles are never delivered');
+    if (b[4] === 1 && (!Number.isInteger(n) || n < 1 || n > MAX_AI_BUNDLE)) throw new Error('an AI bundle is 1..7 slot states');
   }
   // An AI send names its slot in `member`; Rust checks the sender is the host.
   if (b[4] === 1 && ((b[6] !== 0 && b[5] !== AI_LANE) || b[7] !== 0 || b.readBigUInt64BE(16) !== 0n || b.length - HEADER > (b[5] === 2 ? 4096 : 1024))) throw new Error('binary send shape/size');

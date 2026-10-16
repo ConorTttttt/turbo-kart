@@ -350,7 +350,7 @@ export class SidecarHost extends EventEmitter {
               } else if (b[4] !== 3) throw new Error('unexpected binary message');
               this.emit('binary',b);
             }
-          } catch { pipe.destroy();child.kill('SIGKILL'); }
+          } catch (e) { this.log(`binary protocol error from sidecar: ${describe(e)}; killing it`); pipe.destroy();child.kill('SIGKILL'); }
         });
         pipe.on('error',()=>undefined);
         pipe.once('close',()=> { if(this.binary===pipe) {this.binary=undefined;this.binaryPending.clear();this.emit('binary-closed');} });

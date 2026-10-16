@@ -30,4 +30,7 @@ test('bundled host AI: 1..7 slot states on one send, never a delivery',()=>{
  for(const size of [0,AI_BUNDLE_ENTRY-1,AI_BUNDLE_ENTRY+1,8*AI_BUNDLE_ENTRY]) assert.throws(()=>body(packet(AI_BUNDLE_LANE,size)),String(size));
  const m=packet(AI_BUNDLE_LANE,AI_BUNDLE_ENTRY);m[6]=1;assert.throws(()=>body(m),'slots are inside the payload');
  const d=packet(AI_BUNDLE_LANE,AI_BUNDLE_ENTRY);d[4]=3;assert.throws(()=>body(d),'peers get per-slot deliveries');
+ // The sidecar replies to every bundle send on the same lane: ok (empty) or an error message.
+ const ok=packet(AI_BUNDLE_LANE,0);ok[4]=2;assert.doesNotThrow(()=>body(ok),'bundle send acknowledgment');
+ const refused=packet(AI_BUNDLE_LANE,40);refused[4]=2;refused[7]=4;assert.doesNotThrow(()=>body(refused),'bundle send refusal');
 });
