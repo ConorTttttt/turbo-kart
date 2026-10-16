@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { body, BinaryDecoder, frame, HEADER, MAX_BODY, PROGRESS_LANE, PROGRESS_BODY_LEN, PROGRESS_EVENT_LANE } from '../src/main/kartNet/binary';
+import { body, BinaryDecoder, frame, HEADER, MAX_BODY, PROGRESS_LANE, PROGRESS_BODY_LEN, PROGRESS_EVENT_LANE, AI_BUNDLE_LANE, AI_BUNDLE_ENTRY, MAX_AI_BUNDLE } from '../src/main/kartNet/binary';
 function packet(lane:number,size:number):Buffer {
  const b=Buffer.alloc(HEADER+size);b.write('TKR2');b[4]=1;b[5]=lane;b.writeUInt32BE(1,8);b.write('a'.repeat(32),24);return b;
 }
@@ -23,5 +23,11 @@ test('E6.5a progress lane carries exactly one body; event lane is delivery-only'
  const m=packet(PROGRESS_LANE,PROGRESS_BODY_LEN);m[6]=1;assert.throws(()=>body(m));
  assert.throws(()=>body(packet(PROGRESS_EVENT_LANE,20)));
  const d=packet(PROGRESS_EVENT_LANE,20);d[4]=3;assert.doesNotThrow(()=>body(d));
- assert.throws(()=>body(packet(8,0)));
+ assert.throws(()=>body(packet(9,0)));
+});
+test('bundled host AI: 1..7 slot states on one send, never a delivery',()=>{
+ for(let n=1;n<=MAX_AI_BUNDLE;n++) assert.doesNotThrow(()=>body(packet(AI_BUNDLE_LANE,n*AI_BUNDLE_ENTRY)),String(n));
+ for(const size of [0,AI_BUNDLE_ENTRY-1,AI_BUNDLE_ENTRY+1,8*AI_BUNDLE_ENTRY]) assert.throws(()=>body(packet(AI_BUNDLE_LANE,size)),String(size));
+ const m=packet(AI_BUNDLE_LANE,AI_BUNDLE_ENTRY);m[6]=1;assert.throws(()=>body(m),'slots are inside the payload');
+ const d=packet(AI_BUNDLE_LANE,AI_BUNDLE_ENTRY);d[4]=3;assert.throws(()=>body(d),'peers get per-slot deliveries');
 });

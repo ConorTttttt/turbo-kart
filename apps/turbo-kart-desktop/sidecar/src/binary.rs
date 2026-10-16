@@ -1,7 +1,8 @@
 //! Separate E6.2 binary pipe. No JSON, socket path or arbitrary track names.
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use std::time::Instant;
 use crate::slot::NetSlot;
 
 pub const HEADER: usize = 56;
@@ -15,6 +16,30 @@ pub const AI_LANE: u8 = 5;
 pub const PROGRESS_LANE: u8 = 6;
 /// E6.5a: lap / finish / status events; delivery only (Rust derives them, no renderer sends them).
 pub const PROGRESS_EVENT_LANE: u8 = 7;
+/// Host AI, bundled: one send carries `n × (slot u8 | WP3 KartState)`, 1..=MAX_AI_BUNDLE
+/// distinct slots, published as one host-crate AiBundle (one datagram per peer per tick).
+/// Send only: peers still get one lane-5 delivery per slot. Rust checks the sender is the host.
+pub const AI_BUNDLE_LANE: u8 = 8;
+pub const AI_BUNDLE_ENTRY: usize = 1 + holochain_moq_kart_wire::KART_STATE_LEN;
+/// A grid holds at least one human, so at most seven AI.
+pub const MAX_AI_BUNDLE: usize = 7;
+/// Kart (lane 4) and AI (lane 5) deliveries end with this sidecar's arrival time: u64
+/// big-endian microseconds on its monotonic clock, taken when the object left the
+/// network stack. The renderer maps it onto its own clock (same machine).
+pub const ARRIVAL_LEN: usize = 8;
+
+static ORIGIN: OnceLock<Instant> = OnceLock::new();
+/// Fix the stamp origin. Called once at process start, so no stamp ever predates it.
+pub fn init_arrival_clock() { ORIGIN.get_or_init(Instant::now); }
+/// `at` as microseconds since the origin (monotonic, never negative).
+pub fn arrival_us(at: Instant) -> u64 {
+    at.saturating_duration_since(*ORIGIN.get_or_init(Instant::now)).as_micros() as u64
+}
+/// A delivery payload with its arrival stamp appended.
+pub fn stamped(mut payload: Vec<u8>, at: Instant) -> Vec<u8> {
+    payload.extend_from_slice(&arrival_us(at).to_be_bytes());
+    payload
+}
 
 #[derive(Debug, Clone)]
 pub struct Packet {
@@ -31,13 +56,16 @@ impl Packet {
             id: u32::from_be_bytes(bytes[8..12].try_into().unwrap()),
             generation: u32::from_be_bytes(bytes[12..16].try_into().unwrap()),
             seq: u64::from_be_bytes(bytes[16..24].try_into().unwrap()), race: race.to_string(), payload: bytes[HEADER..].to_vec() };
-        if !(1..=PROGRESS_EVENT_LANE).contains(&p.lane) || p.member > 7 { return Err("invalid fixed lane/member"); }
+        if !(1..=AI_BUNDLE_LANE).contains(&p.lane) || p.member > 7 { return Err("invalid fixed lane/member"); }
         let max = if p.lane == 2 { holochain_moq_mesh::RELIABLE_MAX_PAYLOAD } else { holochain_moq_mesh::LATEST_MAX_PAYLOAD };
         if p.kind == 1 && (p.code != 0 || (p.member != 0 && p.lane != AI_LANE) || p.seq != 0 || p.payload.len() > max) { return Err("invalid send or oversized payload"); }
         // E6.3 kart state: exactly one WP3 KartState, nothing else.
         if p.kind == 1 && (p.lane == KART_LANE || p.lane == AI_LANE) && p.payload.len() != holochain_moq_kart_wire::KART_STATE_LEN { return Err("kart state must be one WP3 KartState"); }
         if p.kind == 1 && p.lane == PROGRESS_LANE && p.payload.len() != crate::progress::BODY_LEN { return Err("progress must be one progress body"); }
         if p.kind == 1 && p.lane == PROGRESS_EVENT_LANE { return Err("progress events are derived by Rust, never sent"); }
+        if p.lane == AI_BUNDLE_LANE && (p.kind == 3 || (p.kind == 1 && !(p.payload.len() % AI_BUNDLE_ENTRY == 0 && (1..=MAX_AI_BUNDLE).contains(&(p.payload.len() / AI_BUNDLE_ENTRY))))) {
+            return Err("an AI bundle is 1..=7 × (slot + one WP3 KartState), and only sent");
+        }
         if p.kind == 5 && (!p.payload.is_empty() || p.code != 0 || p.member != 0 || p.seq != 0) { return Err("invalid disconnect probe"); }
         Ok(p)
     }
@@ -102,7 +130,7 @@ mod tests {
   let mut p=Packet::delivery(1,0,1,&"a".repeat(32),0,vec![1;1024]);p.kind=1;p.id=1;
   assert!(Packet::parse(&p.bytes()).is_ok());p.payload.push(1);assert!(Packet::parse(&p.bytes()).is_err());
   p.lane=2;p.payload=vec![2;4096];assert!(Packet::parse(&p.bytes()).is_ok());
-  p.payload.push(2);assert!(Packet::parse(&p.bytes()).is_err());p.payload.clear();p.lane=8;assert!(Packet::parse(&p.bytes()).is_err());
+  p.payload.push(2);assert!(Packet::parse(&p.bytes()).is_err());p.payload.clear();p.lane=9;assert!(Packet::parse(&p.bytes()).is_err());
  }
  #[test] fn ai_lane_names_a_slot_and_carries_exactly_one_wp3_state() {
   let mut p=Packet::delivery(AI_LANE,5,1,&"a".repeat(32),0,vec![1;holochain_moq_kart_wire::KART_STATE_LEN]);p.kind=1;p.id=1;
@@ -120,6 +148,23 @@ mod tests {
   let mut e=Packet::delivery(PROGRESS_EVENT_LANE,0,1,&"a".repeat(32),0,vec![0;crate::progress::EVENT_LEN]);e.kind=1;e.id=1;
   assert!(Packet::parse(&e.bytes()).is_err());
   e.kind=3;assert!(Packet::parse(&e.bytes()).is_ok());
+ }
+ #[test] fn ai_bundle_lane_carries_one_to_seven_slot_states_and_is_never_delivered() {
+  let entry=|slot:u8| { let mut e=vec![slot]; e.extend(vec![1;holochain_moq_kart_wire::KART_STATE_LEN]); e };
+  let mut p=Packet::delivery(AI_BUNDLE_LANE,0,1,&"a".repeat(32),0,vec![]);p.kind=1;p.id=1;
+  for n in 1..=MAX_AI_BUNDLE { p.payload=(0..n as u8).flat_map(entry).collect(); assert!(Packet::parse(&p.bytes()).is_ok(),"{n}"); }
+  for bad in [vec![],(0..8u8).flat_map(entry).collect::<Vec<_>>(),{let mut v=entry(0);v.pop();v},{let mut v=entry(0);v.push(0);v}] {
+   p.payload=bad.clone(); assert!(Packet::parse(&p.bytes()).is_err(),"{}",bad.len());
+  }
+  p.payload=entry(0);p.member=1;assert!(Packet::parse(&p.bytes()).is_err(),"a bundle names its slots inside, not in member");
+  p.member=0;p.kind=3;assert!(Packet::parse(&p.bytes()).is_err(),"peers get per-slot lane-5 deliveries");
+ }
+ #[test] fn arrival_stamps_are_monotonic_microseconds_appended_to_the_payload() {
+  init_arrival_clock(); let t0=Instant::now(); let a=stamped(vec![7;42],t0);
+  assert_eq!(a.len(),42+ARRIVAL_LEN); assert_eq!(&a[..42],&[7;42][..]);
+  let t1=t0+std::time::Duration::from_millis(5); let b=stamped(vec![],t1);
+  let (ua,ub)=(u64::from_be_bytes(a[42..].try_into().unwrap()),u64::from_be_bytes(b[..].try_into().unwrap()));
+  assert_eq!(ub-ua,5000);
  }
  #[test] fn kart_lane_carries_exactly_one_wp3_state() {
   let mut p=Packet::delivery(KART_LANE,0,1,&"a".repeat(32),0,vec![1;holochain_moq_kart_wire::KART_STATE_LEN]);p.kind=1;p.id=1;

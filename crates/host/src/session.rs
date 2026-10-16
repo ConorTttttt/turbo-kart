@@ -35,12 +35,14 @@ use tokio::task::AbortHandle;
 use crate::authority::{
     Authority, AuthorityState, HostEpoch, HostRole, Reject, SetupError, Transition, Verdict,
 };
-use crate::wire::{AiFrame, Heartbeat, HostChanged, HostMessage, MAX_AI_PAYLOAD};
+use crate::wire::{AiBundle, AiFrame, Heartbeat, HostChanged, HostMessage, WireError, MAX_AI_PAYLOAD};
 
 pub const HEARTBEAT_TRACK: &str = "host-hb";
 pub const CONTROL_TRACK: &str = "host-ctl";
 /// The track under each AI source: `race/<r>/ai-<slot>/state`.
 pub const AI_TRACK: &str = "state";
+/// One tick of every AI slot ([`AiBundle`]): `race/<r>/ai-<first slot>/bundle`.
+pub const AI_BUNDLE_TRACK: &str = "bundle";
 
 fn track(name: &str) -> TrackName {
     TrackName::new(name).expect("valid track name")
@@ -146,6 +148,10 @@ pub enum HostError {
     UnknownSlot(u8),
     #[error("AI payload of {0} bytes exceeds {MAX_AI_PAYLOAD}")]
     PayloadTooLarge(usize),
+    #[error("AI bundle refused: {0}")]
+    Bundle(WireError),
+    #[error("this race has no AI slots to bundle")]
+    NoAiSlots,
 }
 
 /// Counters (all cumulative).
@@ -156,6 +162,9 @@ pub struct HostStats {
     pub heartbeats_accepted: u64,
     pub ai_frames_sent: u64,
     pub ai_frames_accepted: u64,
+    /// [`AiBundle`]s sent / accepted (their slots also count in `ai_frames_*`).
+    pub ai_bundles_sent: u64,
+    pub ai_bundles_accepted: u64,
     /// Heartbeats / AI frames from an older epoch (e.g. a delayed old host).
     pub stale_rejected: u64,
     /// From a newer epoch not yet adopted.
@@ -180,6 +189,7 @@ struct St {
     heartbeat: Option<TrackPublisher>,
     control: TrackPublisher,
     ai: HashMap<u8, TrackPublisher>,
+    ai_bundle: Option<TrackPublisher>,
     latest_ai: HashMap<u8, AiSnapshot>,
     stats: HostStats,
     hb_seq: u32,
@@ -241,6 +251,7 @@ impl<T: MeshTransport> HostSession<T> {
                 heartbeat: None,
                 control,
                 ai: HashMap::new(),
+                ai_bundle: None,
                 latest_ai: HashMap::new(),
                 stats: HostStats::default(),
                 hb_seq: 0,
@@ -348,6 +359,53 @@ impl<T: MeshTransport> HostSession<T> {
         Ok(())
     }
 
+    /// Publish one tick of several AI slots as one [`AiBundle`] (one
+    /// datagram per peer). Only the current host may; receivers apply it
+    /// exactly like one [`HostSession::publish_ai`] per slot.
+    pub fn publish_ai_bundle(&self, frames: Vec<(u8, Bytes)>) -> Result<(), HostError> {
+        for (slot, payload) in &frames {
+            if payload.len() > MAX_AI_PAYLOAD {
+                return Err(HostError::PayloadTooLarge(payload.len()));
+            }
+            if !self.shared.slots.contains(slot) {
+                return Err(HostError::UnknownSlot(*slot));
+            }
+        }
+        let mut st = self.shared.st.lock().unwrap();
+        let a = st.auth.current().clone();
+        if !st.auth.is_host() {
+            return Err(HostError::NotHost {
+                host: a.host,
+                epoch: a.epoch,
+            });
+        }
+        let bytes = HostMessage::AiBundle(AiBundle {
+            epoch: a.epoch.0,
+            frames: frames.clone(),
+        })
+        .encode()
+        .map_err(HostError::Bundle)?;
+        st.ai_bundle.as_mut().ok_or(HostError::NoAiSlots)?.send(bytes)?;
+        st.stats.ai_bundles_sent += 1;
+        st.stats.ai_frames_sent += frames.len() as u64;
+        let snaps: Vec<AiSnapshot> = frames
+            .into_iter()
+            .map(|(slot, payload)| AiSnapshot {
+                slot,
+                epoch: a.epoch,
+                payload,
+            })
+            .collect();
+        for snap in &snaps {
+            st.latest_ai.insert(snap.slot, snap.clone());
+        }
+        drop(st);
+        for snap in snaps {
+            let _ = self.shared.ai_updates.send(snap);
+        }
+        Ok(())
+    }
+
     /// Stop all tasks (heartbeats, watchdog, subscriptions).
     pub fn shutdown(&self) {
         for t in self.shared.tasks.lock().unwrap().drain(..) {
@@ -398,6 +456,24 @@ impl<T: MeshTransport> HostSession<T> {
             Some(p) => Ok(p.send(frame).map(|_| ())?),
             None => Err(HostError::UnknownSlot(slot)),
         }
+    }
+
+    /// **Test hook:** send an [`AiBundle`] as if still host at `epoch`,
+    /// bypassing the authority check.
+    #[doc(hidden)]
+    pub fn force_publish_ai_bundle_at(
+        &self,
+        epoch: HostEpoch,
+        frames: Vec<(u8, Bytes)>,
+    ) -> Result<(), HostError> {
+        let b = HostMessage::AiBundle(AiBundle {
+            epoch: epoch.0,
+            frames,
+        })
+        .encode()
+        .map_err(HostError::Bundle)?;
+        let mut st = self.shared.st.lock().unwrap();
+        Ok(st.ai_bundle.as_mut().ok_or(HostError::NoAiSlots)?.send(b).map(|_| ())?)
     }
 
     /// **Test hook:** send a `HostChanged` (e.g. a delayed old one).
@@ -452,6 +528,13 @@ impl<T: MeshTransport> Shared<T> {
                     .publish_ai(*slot, track(AI_TRACK), DeliveryMode::Latest)?;
                 st.ai.insert(*slot, p);
             }
+        }
+        if let (None, Some(first)) = (st.ai_bundle.as_ref(), self.bundle_source()) {
+            st.ai_bundle = Some(self.mesh.publish_ai(
+                first,
+                track(AI_BUNDLE_TRACK),
+                DeliveryMode::Latest,
+            )?);
         }
         if !announce.is_empty() {
             st.control.send(announce)?;
@@ -511,6 +594,23 @@ impl<T: MeshTransport> Shared<T> {
                 .abort_handle(),
             );
         }
+        if let Some(first) = self.bundle_source() {
+            let mut bundles = self.mesh.subscribe_source(
+                &host,
+                Source::Ai(first),
+                track(AI_BUNDLE_TRACK),
+                DeliveryMode::Latest,
+            )?;
+            let (sh, from) = (self.clone(), host.clone());
+            subs.push(
+                tokio::spawn(async move {
+                    while let Ok(Some(b)) = bundles.recv().await {
+                        sh.on_ai_bundle(&b, &from);
+                    }
+                })
+                .abort_handle(),
+            );
+        }
         st.host_subs = subs;
         Ok(())
     }
@@ -556,6 +656,49 @@ impl<T: MeshTransport> Shared<T> {
                 st.latest_ai.insert(slot, snap.clone());
                 drop(st);
                 let _ = self.ai_updates.send(snap);
+            }
+            Verdict::Stale => st.stats.stale_rejected += 1,
+            Verdict::Future => st.stats.future_rejected += 1,
+            Verdict::NotHost => st.stats.not_host_rejected += 1,
+        }
+    }
+
+    /// The AI source a bundle travels under: the race's lowest AI slot.
+    fn bundle_source(&self) -> Option<u8> {
+        self.slots.iter().copied().min()
+    }
+
+    /// One [`AiBundle`]: one epoch verdict for all its slots, then the same
+    /// per-slot snapshots [`Self::on_ai`] gives.
+    fn on_ai_bundle(&self, b: &[u8], from: &str) {
+        let mut st = self.st.lock().unwrap();
+        let bundle = match HostMessage::decode(b) {
+            Ok(HostMessage::AiBundle(x)) => x,
+            _ => return st.stats.malformed += 1,
+        };
+        if bundle.frames.iter().any(|(slot, _)| !self.slots.contains(slot)) {
+            return st.stats.malformed += 1;
+        }
+        match st.auth.classify(HostEpoch(bundle.epoch), from) {
+            Verdict::Authoritative => {
+                st.stats.ai_bundles_accepted += 1;
+                st.stats.ai_frames_accepted += bundle.frames.len() as u64;
+                let snaps: Vec<AiSnapshot> = bundle
+                    .frames
+                    .into_iter()
+                    .map(|(slot, payload)| AiSnapshot {
+                        slot,
+                        epoch: HostEpoch(bundle.epoch),
+                        payload,
+                    })
+                    .collect();
+                for snap in &snaps {
+                    st.latest_ai.insert(snap.slot, snap.clone());
+                }
+                drop(st);
+                for snap in snaps {
+                    let _ = self.ai_updates.send(snap);
+                }
             }
             Verdict::Stale => st.stats.stale_rejected += 1,
             Verdict::Future => st.stats.future_rejected += 1,

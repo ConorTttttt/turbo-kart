@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use crate::protocol::{IpcError, IpcErrorCode};
-use crate::binary::{Packet, KART_LANE, AI_LANE, PROGRESS_LANE};
+use crate::binary::{Packet, KART_LANE, AI_LANE, AI_BUNDLE_LANE, PROGRESS_LANE};
 use crate::racectl::RaceCtl;
 use holochain_moq_kart_wire::KartState;
 
@@ -244,6 +244,7 @@ impl Session {
                             let mut gate = TickGate::default();
                             loop {
                                 let object = sub.recv_object().await.map_err(fail)?.ok_or_else(|| fail("test track ended"))?;
+                                let at = std::time::Instant::now();
                                 if lane == KART_LANE {
                                     // Only well-formed, advancing state from this admitted
                                     // peer's own source reaches the renderer.
@@ -252,11 +253,13 @@ impl Session {
                                         Ok(state) if !gate.accept(state.tick) => { counters.stale.fetch_add(1, Ordering::Relaxed); continue; }
                                         Ok(state) => {
                                             counters.received.fetch_add(1, Ordering::Relaxed);
-                                            arrivals.lock().unwrap().entry(peer.clone()).or_default().record(std::time::Instant::now(), origin, state.tick);
+                                            arrivals.lock().unwrap().entry(peer.clone()).or_default().record(at, origin, state.tick);
                                         }
                                     }
                                 }
-                                let msg = Packet::delivery(lane, index as u8, generation, &race, object.seq, object.payload.to_vec());
+                                // Kart state carries its arrival time here, not at the renderer (page delays only add).
+                                let payload = if lane == KART_LANE { crate::binary::stamped(object.payload.to_vec(), at) } else { object.payload.to_vec() };
+                                let msg = Packet::delivery(lane, index as u8, generation, &race, object.seq, payload);
                                 if lane == 2 { tx.send(msg).await.map_err(fail)?; }
                                 else if tx.try_send(msg).is_err() { dropped.fetch_add(1, Ordering::Relaxed); }
                             }
@@ -304,6 +307,11 @@ impl Session {
                 // Only the admission's (epoch-1) host, only its grid's AI slots, only valid WP3 state.
                 let race = self.race.as_ref().ok_or_else(|| IpcError::new(IpcErrorCode::NotHost, "race control unavailable"))?;
                 race.publish_ai(&self.admission, packet.member, &packet.payload).map_err(|e| IpcError::new(IpcErrorCode::NotHost, e))
+            }
+            AI_BUNDLE_LANE => {
+                // One tick of every AI slot as one AiBundle: the same host/slot/state checks as lane 5.
+                let race = self.race.as_ref().ok_or_else(|| IpcError::new(IpcErrorCode::NotHost, "race control unavailable"))?;
+                race.publish_ai_bundle(&self.admission, &packet.payload).map_err(|e| IpcError::new(IpcErrorCode::NotHost, e))
             }
             PROGRESS_LANE => {
                 // E6.5a: only the admission's host, only a valid, forward-only snapshot.
@@ -456,11 +464,15 @@ mod tests {
             id+=1;tick+=1;a.send(&packet(id,kart(tick,tick as f32))).unwrap();
             if let Ok(Some(p))=tokio::time::timeout(Duration::from_millis(60),rxb.recv()).await { if p.lane==KART_LANE {break p;} }
         }}).await.unwrap();
-        assert_eq!(got.member,0);let s=KartState::decode(&got.payload).unwrap();assert_eq!(s.pos[1],0.5);assert!(s.tick>100);
+        assert_eq!(got.member,0);let s=KartState::decode(&got.payload[..42]).unwrap();assert_eq!(s.pos[1],0.5);assert!(s.tick>100);
+        // The delivery ends with this sidecar's arrival stamp (monotonic µs, not in the future).
+        assert_eq!(got.payload.len(),42+crate::binary::ARRIVAL_LEN);
+        let stamp=u64::from_be_bytes(got.payload[42..].try_into().unwrap());
+        assert!(stamp<=crate::binary::arrival_us(std::time::Instant::now()),"stamp {stamp}");
         // Stale ticks from the same source are dropped by the receiver's gate.
         a.send(&packet(id+1,kart(s.tick,1.0))).unwrap();a.send(&packet(id+2,kart(1,1.0))).unwrap();
         tokio::time::sleep(Duration::from_millis(400)).await;
-        while let Ok(p)=rxb.try_recv() { if p.lane==KART_LANE { assert!(KartState::decode(&p.payload).unwrap().tick>s.tick,"stale state forwarded"); } }
+        while let Ok(p)=rxb.try_recv() { if p.lane==KART_LANE { assert!(KartState::decode(&p.payload[..42]).unwrap().tick>s.tick,"stale state forwarded"); } }
         assert!(b.kart_counters.stale.load(Ordering::Relaxed)>=1);
         assert!(a.kart_counters.published.load(Ordering::Relaxed)>=2 && b.kart_counters.received.load(Ordering::Relaxed)>=1);
         a.stop().await;b.stop().await;for (_,t) in bound {t.close().await;}
@@ -507,7 +519,25 @@ mod tests {
             if let Ok(Some(p))=tokio::time::timeout(Duration::from_millis(60),rxb.recv()).await { if p.lane==AI_LANE {break p;} }
         }}).await.unwrap();
         assert_eq!(got.member,3);
+        assert_eq!(got.payload.len(),42+crate::binary::ARRIVAL_LEN,"AI deliveries carry the arrival stamp");
         assert!(b.status(0)["race"]["counters"]["ai_received"].as_u64().unwrap()>=1);
+        // Bundled: one send of slots 0, 2 and 5 reaches the peer as three per-slot deliveries.
+        let bundle=|states:&[(u8,Vec<u8>)],id:u32| Packet{kind:1,lane:AI_BUNDLE_LANE,member:0,code:0,id,generation:1,seq:0,race:"a".repeat(32),
+            payload:states.iter().flat_map(|(s,k)| std::iter::once(*s).chain(k.iter().copied())).collect()};
+        assert!(b.race.as_ref().unwrap().publish_ai_bundle(&bb,&[0].into_iter().chain(kart(1,0.0)).collect::<Vec<_>>()).is_err(),"non-host bundle refused");
+        assert!(a.send(&bundle(&[(0,kart(1,0.0)),(0,kart(2,0.0))],id+1)).is_err(),"a slot twice refused");
+        assert!(a.send(&bundle(&[(0,kart(1,0.0)),(6,kart(1,0.0))],id+2)).is_err(),"slot outside the grid refused");
+        let mut bad=kart(1,0.0);bad[0]=7;assert!(a.send(&bundle(&[(0,bad)],id+3)).is_err(),"malformed state in a bundle refused");
+        let published=a.status(0)["race"]["counters"]["ai_published"].as_u64().unwrap();
+        let mut seen=std::collections::BTreeMap::new();id+=10;
+        tokio::time::timeout(Duration::from_secs(10),async {loop {
+            id+=1;tick+=1;a.send(&bundle(&[(0,kart(tick,0.0)),(2,kart(tick,2.0)),(5,kart(tick,5.0))],id)).unwrap();
+            while let Ok(Some(p))=tokio::time::timeout(Duration::from_millis(40),rxb.recv()).await {
+                if p.lane==AI_LANE { let st=KartState::decode(&p.payload[..42]).unwrap(); assert_eq!(st.pos[0],p.member as f32); seen.insert(p.member,st.tick); }
+            }
+            if [0u8,2,5].iter().all(|s| seen.contains_key(s)) {break;}
+        }}).await.unwrap();
+        assert!(a.status(0)["race"]["counters"]["ai_published"].as_u64().unwrap()>=published+3,"each bundled slot counts as a published AI state");
         // (Peer sidecar *crash* recovery needs WP6's reconnect after an abrupt loss, not a
         // graceful stop, which WP6 treats as leaving: exercised by the desktop e64 test.)
         a.stop().await;b.stop().await;for (_,t) in bound {t.close().await;}

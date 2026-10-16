@@ -18,6 +18,7 @@ fn usage() -> ! {
 }
 
 fn main() {
+    turbo_kart_sidecar::binary::init_arrival_clock(); // before any delivery is stamped
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (endpoint, mode) = match netmode::parse_args(&args) {
         Ok(v) => v,

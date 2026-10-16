@@ -176,3 +176,37 @@ fn garbage_never_panics_and_accepted_inputs_are_canonical() {
     println!("host wire sweep: 200000 inputs, {accepted} accepted, 0 panics");
     assert!(accepted > 1000);
 }
+
+#[test]
+fn ai_bundle_golden_bytes_and_rejections() {
+    let b = HostMessage::AiBundle(AiBundle {
+        epoch: 2,
+        frames: vec![(0, Bytes::from_static(&[0xaa, 0xbb])), (3, Bytes::from_static(&[0xcc]))],
+    });
+    let bytes = b.encode().unwrap();
+    assert_eq!(bytes, unhex("01 04 00000002 02 00 0002 aabb 03 0001 cc"));
+    assert_eq!(HostMessage::decode(&bytes).unwrap(), b);
+    // A full grid of six 42-byte kart states is one 277-byte message.
+    let six = HostMessage::AiBundle(AiBundle { epoch: 1, frames: (0..6).map(|s| (s, Bytes::from(vec![s; 42]))).collect() });
+    assert_eq!(six.encode().unwrap().len(), 7 + 6 * (3 + 42));
+    let bad = |frames: Vec<(u8, Bytes)>, epoch: u32| HostMessage::AiBundle(AiBundle { epoch, frames }).encode();
+    assert_eq!(bad(vec![], 1), Err(WireError::BadBundle));
+    assert_eq!(bad(vec![(1, Bytes::new()), (1, Bytes::new())], 1), Err(WireError::BadBundle));
+    assert_eq!(bad((0..9).map(|s| (s, Bytes::new())).collect(), 1), Err(WireError::BadBundle));
+    assert_eq!(bad(vec![(0, Bytes::new())], 0), Err(WireError::ZeroEpoch));
+    assert_eq!(bad((0..2).map(|s| (s, Bytes::from(vec![0; 600]))).collect(), 1), Err(WireError::PayloadTooLarge));
+    // Decoding refuses the same, plus truncation and trailing bytes.
+    for (hexs, want) in [
+        ("01 04 00000002 00", WireError::BadBundle),
+        ("01 04 00000002 02 01 0000 01 0000", WireError::BadBundle),
+        ("01 04 00000002 09", WireError::BadBundle),
+        ("01 04 00000000 01 00 0000", WireError::ZeroEpoch),
+        ("01 04 00000002 01 00 0005 aabb", WireError::Truncated),
+        ("01 04 00000002 01 00 0001 aa ff", WireError::TrailingBytes),
+    ] {
+        assert_eq!(HostMessage::decode(&unhex(hexs)), Err(want), "{hexs}");
+    }
+    let mut big = unhex("01 04 00000002 01 00 03f9");
+    big.extend(vec![0u8; 0x3f9]);
+    assert_eq!(HostMessage::decode(&big), Err(WireError::PayloadTooLarge));
+}

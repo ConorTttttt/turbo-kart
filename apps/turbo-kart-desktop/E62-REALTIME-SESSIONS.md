@@ -92,6 +92,10 @@ followed by a fixed 56-byte header and opaque payload:
 | 24 | 32 | immutable hexadecimal race ID |
 | 56 | bounded | payload bytes |
 
+Later additions (see [E6-NETCODE-SMOOTHING.md](E6-NETCODE-SMOOTHING.md)): lane 8 sends a
+bundle of host AI states, and kart/AI deliveries (lanes 4/5) end with an 8-byte sidecar
+arrival stamp.
+
 The renderer posts an `ArrayBuffer`/typed-array view, never a JSON array. Transfer
 the MessagePort itself; binary messages use structured cloning without putting
 the ArrayBuffer into a transfer list. A real Electron 42.5.1 diagnostic found that

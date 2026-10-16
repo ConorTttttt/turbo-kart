@@ -10,7 +10,15 @@
 //!
 //! AiFrame (Latest track `race/<r>/ai-<slot>/state`, from the host)    9 + payload
 //!   0 version=1 | 1 type=3 | 2 epoch u32 | 6 slot u8 | 7 len u16 | 9 payload (opaque, game-defined)
+//!
+//! AiBundle (Latest track `race/<r>/ai-<first slot>/bundle`, from the host)   7 + Σ(3 + payload)
+//!   0 version=1 | 1 type=4 | 2 epoch u32 | 6 count u8 (1..=8)
+//!   | count × (slot u8 | len u16 | payload)       slots distinct; the whole message ≤ 1024 B
 //! ```
+//!
+//! An `AiBundle` carries one tick of every AI slot under one epoch: one
+//! datagram per peer per tick instead of one per slot. Receivers split it into
+//! the same per-slot snapshots an `AiFrame` gives.
 //!
 //! Agent keys are the mesh's `AgentPubKey` text (ASCII letters, digits, `-`,
 //! `_`; 1–64 bytes). The sender of every message is also authenticated by the
@@ -22,9 +30,14 @@ pub const VERSION: u8 = 1;
 pub const TYPE_HEARTBEAT: u8 = 1;
 pub const TYPE_HOST_CHANGED: u8 = 2;
 pub const TYPE_AI_FRAME: u8 = 3;
+pub const TYPE_AI_BUNDLE: u8 = 4;
 pub const MAX_AGENT_LEN: usize = 64;
 /// Fits one `Latest` datagram (1024 B) with the 9-byte header.
 pub const MAX_AI_PAYLOAD: usize = 1015;
+/// Slots one `AiBundle` may carry (a full grid less one player).
+pub const MAX_AI_BUNDLE_SLOTS: usize = 8;
+/// A whole `AiBundle` fits one `Latest` datagram.
+pub const MAX_AI_BUNDLE_BYTES: usize = 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Heartbeat {
@@ -50,11 +63,20 @@ pub struct AiFrame {
     pub payload: Bytes,
 }
 
+/// One tick of several AI slots under one epoch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiBundle {
+    pub epoch: u32,
+    /// (slot, opaque payload), slots distinct.
+    pub frames: Vec<(u8, Bytes)>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostMessage {
     Heartbeat(Heartbeat),
     HostChanged(HostChanged),
     AiFrame(AiFrame),
+    AiBundle(AiBundle),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,6 +90,8 @@ pub enum WireError {
     /// An agent key that is empty, too long, or not key-text.
     BadAgent,
     PayloadTooLarge,
+    /// An `AiBundle` with no slots, too many, or one slot twice.
+    BadBundle,
 }
 
 impl std::fmt::Display for WireError {
@@ -91,6 +115,22 @@ fn put_agent(out: &mut Vec<u8>, a: &str) -> Result<(), WireError> {
     }
     out.push(a.len() as u8);
     out.extend_from_slice(a.as_bytes());
+    Ok(())
+}
+
+/// 1..=MAX_AI_BUNDLE_SLOTS slots, each once.
+fn check_bundle_slots(slots: impl Iterator<Item = u8>) -> Result<(), WireError> {
+    let mut seen = [false; 256];
+    let mut n = 0;
+    for s in slots {
+        if std::mem::replace(&mut seen[s as usize], true) {
+            return Err(WireError::BadBundle);
+        }
+        n += 1;
+    }
+    if n == 0 || n > MAX_AI_BUNDLE_SLOTS {
+        return Err(WireError::BadBundle);
+    }
     Ok(())
 }
 
@@ -175,6 +215,26 @@ impl HostMessage {
                 out.extend_from_slice(&(f.payload.len() as u16).to_be_bytes());
                 out.extend_from_slice(&f.payload);
             }
+            Self::AiBundle(b) => {
+                if b.epoch == 0 {
+                    return Err(WireError::ZeroEpoch);
+                }
+                check_bundle_slots(b.frames.iter().map(|(s, _)| *s))?;
+                out.push(TYPE_AI_BUNDLE);
+                out.extend_from_slice(&b.epoch.to_be_bytes());
+                out.push(b.frames.len() as u8);
+                for (slot, payload) in &b.frames {
+                    if payload.len() > MAX_AI_PAYLOAD {
+                        return Err(WireError::PayloadTooLarge);
+                    }
+                    out.push(*slot);
+                    out.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+                    out.extend_from_slice(payload);
+                }
+                if out.len() > MAX_AI_BUNDLE_BYTES {
+                    return Err(WireError::PayloadTooLarge);
+                }
+            }
         }
         Ok(out)
     }
@@ -208,6 +268,26 @@ impl HostMessage {
                     slot,
                     payload: Bytes::copy_from_slice(r.take(len)?),
                 })
+            }
+            TYPE_AI_BUNDLE => {
+                if b.len() > MAX_AI_BUNDLE_BYTES {
+                    return Err(WireError::PayloadTooLarge);
+                }
+                let epoch = r.epoch()?;
+                let count = r.u8()? as usize;
+                if count > MAX_AI_BUNDLE_SLOTS {
+                    return Err(WireError::BadBundle);
+                }
+                let mut frames = Vec::with_capacity(count);
+                for _ in 0..count {
+                    let (slot, len) = (r.u8()?, r.u16()? as usize);
+                    if len > MAX_AI_PAYLOAD {
+                        return Err(WireError::PayloadTooLarge);
+                    }
+                    frames.push((slot, Bytes::copy_from_slice(r.take(len)?)));
+                }
+                check_bundle_slots(frames.iter().map(|(s, _)| *s))?;
+                Self::AiBundle(AiBundle { epoch, frames })
             }
             t => return Err(WireError::UnknownType(t)),
         };

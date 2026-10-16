@@ -36,7 +36,7 @@ use holochain_moq_turbo_kart_client::race::RaceAdmission;
 use serde::Serialize;
 use tokio::sync::{mpsc, Notify};
 
-use crate::binary::{Packet, AI_LANE, PROGRESS_EVENT_LANE, PROGRESS_LANE};
+use crate::binary::{Packet, AI_BUNDLE_ENTRY, AI_LANE, PROGRESS_EVENT_LANE, PROGRESS_LANE};
 use crate::progress::{self, Binding, Body, Mismatch, ProgressEvent, Rules};
 use holochain_moq_mesh::TrackPublisher;
 use crate::realtime::TickGate;
@@ -365,7 +365,8 @@ impl RaceCtl {
                     if !gates.entry(snap.slot).or_default().accept(state.tick) { c.counters.ai_stale += 1; continue; }
                     c.counters.ai_received += 1;
                     drop(c);
-                    let p = Packet::delivery(AI_LANE, snap.slot, generation, &race, 0, snap.payload.to_vec());
+                    // Stamped as the forwarder takes it from the host session (just after the network).
+                    let p = Packet::delivery(AI_LANE, snap.slot, generation, &race, 0, crate::binary::stamped(snap.payload.to_vec(), std::time::Instant::now()));
                     if tx.try_send(p).is_err() { me.ctl.lock().unwrap().counters.ai_dropped += 1; }
                 }
             });
@@ -519,6 +520,28 @@ impl RaceCtl {
         let n = self.ai_published.fetch_add(1, Ordering::Relaxed) + 1;
         self.ctl.lock().unwrap().counters.ai_published = n;
         Ok(n)
+    }
+
+    /// Bundled AI kart state from the host's renderer (lane 8): `n × (slot | KartState)`.
+    /// The same checks as [`Self::publish_ai`] for every slot, then one AiBundle.
+    pub fn publish_ai_bundle(&self, admission: &RaceAdmission, payload: &[u8]) -> Result<u64, String> {
+        if admission.local != admission.host { return Err("only the admission's host publishes AI".into()); }
+        if self.ctl.lock().unwrap().host_lost.is_some() { return Err("host authority lost; AI publishing stopped".into()); }
+        if payload.is_empty() || payload.len() % AI_BUNDLE_ENTRY != 0 { return Err("malformed AI bundle".into()); }
+        let mut frames = Vec::new();
+        for e in payload.chunks(AI_BUNDLE_ENTRY) {
+            let slot = e[0];
+            if !self.ai_slots.contains(&slot) { return Err(format!("AI slot {slot} is not on this grid")); }
+            if frames.iter().any(|(s, _): &(u8, bytes::Bytes)| *s == slot) { return Err(format!("AI slot {slot} twice in one bundle")); }
+            KartState::decode(&e[1..]).map_err(|e| format!("malformed AI state: {e}"))?;
+            frames.push((slot, bytes::Bytes::copy_from_slice(&e[1..])));
+        }
+        let n = frames.len() as u64;
+        let host = self.host.lock().unwrap().clone().ok_or("host session not started yet")?;
+        host.publish_ai_bundle(frames).map_err(|e| e.to_string())?;
+        let total = self.ai_published.fetch_add(n, Ordering::Relaxed) + n;
+        self.ctl.lock().unwrap().counters.ai_published = total;
+        Ok(total)
     }
 
     fn binding(&self, admission: &RaceAdmission) -> Result<Binding, String> {

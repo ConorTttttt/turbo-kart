@@ -254,8 +254,8 @@ try {
     workingSetMB: { before: mem1.map((m) => Math.round(m / 1024)), after: mem2.map((m) => Math.round(m / 1024)) }, jsHeapMB: fps.map((f) => f.heap && Math.round(f.heap / 1e6)),
   };
   const m = metrics.sustained;
-  check('human-state-20Hz', m.humanPublishHz.every((h) => h >= 17 && h <= 31) && m.humanReceiveHz.every((h) => h >= 14), `publish ${m.humanPublishHz.map((h) => h.toFixed(1)).join('/')} Hz, receive ${m.humanReceiveHz.map((h) => h.toFixed(1)).join('/')} Hz`);
-  check('ai-state-6x20Hz', m.aiPublishHz >= 100 && m.aiReceiveHz >= 80, `host publishes ${m.aiPublishHz.toFixed(0)} AI states/s, Bob receives ${m.aiReceiveHz.toFixed(0)}/s (sidecars ${m.sidecarAiPublishedHz.toFixed(0)}/${m.sidecarAiReceivedHz.toFixed(0)})`);
+  check('human-state-30Hz', m.humanPublishHz.every((h) => h >= 26 && h <= 34) && m.humanReceiveHz.every((h) => h >= 21), `publish ${m.humanPublishHz.map((h) => h.toFixed(1)).join('/')} Hz, receive ${m.humanReceiveHz.map((h) => h.toFixed(1)).join('/')} Hz`);
+  check('ai-state-6x30Hz', m.aiPublishHz >= 150 && m.aiReceiveHz >= 120, `host publishes ${m.aiPublishHz.toFixed(0)} AI states/s, Bob receives ${m.aiReceiveHz.toFixed(0)}/s (sidecars ${m.sidecarAiPublishedHz.toFixed(0)}/${m.sidecarAiReceivedHz.toFixed(0)})`);
   check('24-responsive-and-bounded', m.fps.every((f) => f >= 20) && m.pending.every((p) => p <= 14) && m.buffers.flat().every((b) => b <= 32),
     `fps ${m.fps.join('/')}; pending ${m.pending.join('/')}; buffers ≤ ${Math.max(...m.buffers.flat())}; skipped ${m.skippedLocal.join('/')}`);
   const zomeAfter = await Promise.all([session(alice), session(bob)]);

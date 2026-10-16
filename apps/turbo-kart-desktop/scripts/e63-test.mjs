@@ -246,7 +246,7 @@ try {
     workingSetMB: { before: mem1.map((m) => Math.round(m / 1024)), after: mem2.map((m) => Math.round(m / 1024)) },
     jsHeapMB: fps.map((f) => f.heap && Math.round(f.heap / 1e6)),
   };
-  check('snapshot-rate-20Hz', metrics.sustained.publishHz.every((h) => h >= 17 && h <= 31) && metrics.sustained.receiveHz.every((h) => h >= 14),
+  check('snapshot-rate-30Hz', metrics.sustained.publishHz.every((h) => h >= 26 && h <= 34) && metrics.sustained.receiveHz.every((h) => h >= 21),
     `publish ${metrics.sustained.publishHz.map((h) => h.toFixed(1)).join('/')} Hz, receive ${metrics.sustained.receiveHz.map((h) => h.toFixed(1)).join('/')} Hz`);
   check('14-responsive-under-sustained-updates', metrics.sustained.fps.every((f) => f >= 20), `fps ${metrics.sustained.fps.join('/')}`);
   check('J-bounded-buffers-and-queues', metrics.sustained.bufferSizes.flat().every((n) => n <= 32) && metrics.sustained.pendingSends.every((n) => n <= 8), JSON.stringify({ buffers: metrics.sustained.bufferSizes, pending: metrics.sustained.pendingSends }));

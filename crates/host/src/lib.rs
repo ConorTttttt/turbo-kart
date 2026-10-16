@@ -20,7 +20,10 @@ pub use authority::{
     Authority, AuthorityState, HostEpoch, HostRole, Reject, SetupError, Transition, Verdict,
 };
 pub use session::{
-    AiSnapshot, HostConfig, HostError, HostEvent, HostSession, HostSetup, HostStats, AI_TRACK,
-    CONTROL_TRACK, HEARTBEAT_TRACK,
+    AiSnapshot, HostConfig, HostError, HostEvent, HostSession, HostSetup, HostStats, AI_BUNDLE_TRACK,
+    AI_TRACK, CONTROL_TRACK, HEARTBEAT_TRACK,
 };
-pub use wire::{AiFrame, Heartbeat, HostChanged, HostMessage, WireError, MAX_AI_PAYLOAD};
+pub use wire::{
+    AiBundle, AiFrame, Heartbeat, HostChanged, HostMessage, WireError, MAX_AI_BUNDLE_BYTES,
+    MAX_AI_BUNDLE_SLOTS, MAX_AI_PAYLOAD,
+};

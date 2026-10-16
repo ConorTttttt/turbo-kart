@@ -13,17 +13,26 @@ export const PROGRESS_LANE = 6;
 export const PROGRESS_BODY_LEN = 172;
 /** E6.5a: lap / finish / status events; delivered only (Rust derives them). */
 export const PROGRESS_EVENT_LANE = 7;
+/** Host AI, bundled: one send of 1..MAX_AI_BUNDLE × (slot u8 + WP3 KartState); send only (peers get lane-5 deliveries). */
+export const AI_BUNDLE_LANE = 8;
+export const AI_BUNDLE_ENTRY = 1 + KART_STATE_LEN;
+export const MAX_AI_BUNDLE = 7;
 
 export function body(value: unknown): Buffer {
   if (!(value instanceof ArrayBuffer) && !ArrayBuffer.isView(value)) throw new Error('binary buffer required');
   const b = value instanceof ArrayBuffer ? Buffer.from(value) : Buffer.from(value.buffer, value.byteOffset, value.byteLength);
   if (b.length < HEADER || b.length > MAX_BODY || b.toString('ascii', 0, 4) !== 'TKR2') throw new Error('binary frame size/magic');
-  if (!/^[a-fA-F0-9]{32}$/.test(b.toString('ascii', 24, 56)) || b[5] < 1 || b[5] > PROGRESS_EVENT_LANE || b[6] > 7) throw new Error('fixed lane/race/member refused');
+  if (!/^[a-fA-F0-9]{32}$/.test(b.toString('ascii', 24, 56)) || b[5] < 1 || b[5] > AI_BUNDLE_LANE || b[6] > 7) throw new Error('fixed lane/race/member refused');
   // E6.3 kart state: exactly one WP3 KartState per send (Rust decodes it again).
   if (b[4] === 1 && (b[5] === KART_LANE || b[5] === AI_LANE) && b.length - HEADER !== KART_STATE_LEN) throw new Error('kart state must be one WP3 KartState');
   // E6.5a: one progress body per send (Rust validates it); events are never sent.
   if (b[4] === 1 && b[5] === PROGRESS_LANE && b.length - HEADER !== PROGRESS_BODY_LEN) throw new Error('progress must be one progress body');
   if (b[4] === 1 && b[5] === PROGRESS_EVENT_LANE) throw new Error('progress events are never sent');
+  // A bundle names its slots inside (Rust checks host, slots and every state again).
+  if (b[5] === AI_BUNDLE_LANE) {
+    const n = (b.length - HEADER) / AI_BUNDLE_ENTRY;
+    if (b[4] !== 1 || !Number.isInteger(n) || n < 1 || n > MAX_AI_BUNDLE) throw new Error('an AI bundle is 1..7 slot states, and only sent');
+  }
   // An AI send names its slot in `member`; Rust checks the sender is the host.
   if (b[4] === 1 && ((b[6] !== 0 && b[5] !== AI_LANE) || b[7] !== 0 || b.readBigUInt64BE(16) !== 0n || b.length - HEADER > (b[5] === 2 ? 4096 : 1024))) throw new Error('binary send shape/size');
   if (b[4]===5 && (b.length!==HEADER || b[6]!==0 || b[7]!==0 || b.readBigUInt64BE(16)!==0n)) throw new Error('invalid disconnect probe');
