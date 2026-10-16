@@ -62,7 +62,11 @@ kangarooCli
   )
   .option(
     '--game-relay-url <url>',
-    'E6.INTERNET (opt-in): https URL of the iroh relay the realtime game mesh may use for NAT traversal and relay fallback; also selects the experimental Internet clock tier (≤ 60 ms). Absent: LAN mode, direct only (not persisted across restarts).',
+    'https URL of the iroh relay the realtime game mesh uses for NAT traversal and relay fallback (Internet mode, the default; clock tier ≤ 60 ms). Default: https://dev-test-bootstrap2.holochain.org/ (not persisted across restarts).',
+  )
+  .option(
+    '--lan',
+    'LAN mode: direct connections only, no game relay (clock tier ≤ 15 ms). Every racer in a race must use the same mode (not persisted across restarts).',
   )
   .option(
     '-s, --signal-url <url>',

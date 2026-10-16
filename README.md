@@ -25,3 +25,9 @@ matching rebuilt hApps and sidecars. See the game's
 
 The zome wasm embeds build paths: building from another checkout path changes the
 DNA hashes. `yarn pack:happs` checks those hashes before packaging.
+
+## Network mode
+
+Releases default to Internet mode (the game relay is used when two computers cannot
+connect directly); `--lan` is the opt-in for direct-only play. See
+[the desktop app README](apps/turbo-kart-desktop/README.md#network-mode-internet-by-default).

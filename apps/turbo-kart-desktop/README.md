@@ -243,6 +243,24 @@ updates use polling (20 s browser, 5 s room). Single Player remains available in
 browsers, where multiplayer requires this desktop app. Start Race is disabled.
 See [E5-MULTIPLAYER-UI.md](E5-MULTIPLAYER-UI.md) for API contracts, tests and screenshots.
 
+## Network mode: Internet by default
+
+From 0.5.0 every build starts in **Internet mode**: the realtime race connection may go
+through the game relay (`https://dev-test-bootstrap2.holochain.org/`) when the two
+computers cannot reach each other directly (different networks, NAT, or Wi-Fi that isolates
+devices). No launch option is needed. This is a standing rule for every future version:
+Internet mode is the default, LAN mode is the opt-in.
+
+| Mode | How to start | Connection | Clock tolerance |
+|---|---|---|---|
+| Internet (default) | no option, or `--game-relay-url <https URL>` for another relay | direct when possible, relay otherwise | ≤ 60 ms |
+| LAN | `--lan` | direct only | ≤ 15 ms |
+
+Every racer in a race must use the same mode. Desktop test harnesses pass `--lan` so they
+stay offline, unless `E6I_GAME_RELAY_URL` names a relay. Version 0.4.0 and earlier
+defaulted to LAN mode: start those with
+`"/opt/Turbo Kart Rally/dev.holochain-moq.turbo-kart" --game-relay-url https://dev-test-bootstrap2.holochain.org/`.
+
 ## Known limitations
 
 Two-desktop harness, isolation, network setup, boundary semantics and evidence:

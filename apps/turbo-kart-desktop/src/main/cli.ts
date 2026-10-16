@@ -11,6 +11,7 @@ export interface CliOpts {
   bootstrapUrl?: string;
   relayUrl?: string;
   gameRelayUrl?: string;
+  lan?: boolean;
   printHolochainLogs?: boolean;
 }
 
@@ -18,7 +19,7 @@ export interface RunOptions {
   profile: string | undefined;
   bootstrapUrl: URL | undefined;
   relayUrl: URL | undefined;
-  /** E6.INTERNET: the game mesh's https relay; undefined = LAN mode (v0.1). */
+  /** The game mesh's https relay (Internet mode, the default); undefined = LAN mode (--lan). */
   gameRelayUrl: string | undefined;
   holochainPath: string | undefined;
   lairPath: string | undefined;
@@ -27,6 +28,13 @@ export interface RunOptions {
   lairRustLog: string | undefined;
   printHolochainLogs: boolean;
 }
+
+/**
+ * Internet mode is the default (owner decision, 0.5.0): the realtime game mesh may use this
+ * relay for NAT traversal and fallback, so racers on different networks can connect.
+ * `--lan` opts out (direct only, the 15 ms LAN clock tier); `--game-relay-url` replaces it.
+ */
+export const DEFAULT_GAME_RELAY_URL = 'https://dev-test-bootstrap2.holochain.org/';
 
 /** Same limit as the presence/lobby relay URL (`MAX_RELAY_URL_LEN`). */
 export const MAX_GAME_RELAY_URL_LEN = 256;
@@ -77,8 +85,10 @@ export function validateArgs(args: CliOpts): RunOptions {
   if (args.relayUrl && typeof args.relayUrl !== 'string') {
     throw new Error('The --relay-url argument must be of type string.');
   }
-  const gameRelayUrl =
-    args.gameRelayUrl === undefined ? undefined : validateGameRelayUrl(args.gameRelayUrl);
+  if (args.lan && args.gameRelayUrl !== undefined) {
+    throw new Error('--lan (direct only) and --game-relay-url (Internet mode) cannot be combined.');
+  }
+  const gameRelayUrl = args.lan ? undefined : validateGameRelayUrl(args.gameRelayUrl ?? DEFAULT_GAME_RELAY_URL);
   if (args.holochainPath && typeof args.holochainPath !== 'string') {
     throw new Error('The --holochain-path argument must be of type string.');
   }

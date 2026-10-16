@@ -111,8 +111,9 @@ export class Desktop {
     delete env.TURBO_KART_DEVTOOLS;
     this.child = spawn(path.resolve('node_modules/electron/dist/electron'), [
       '.', '--profile', this.name, '--bootstrap-url', this.networkUrl, '--relay-url', this.networkUrl,
-      // E6.INTERNET (test-only, opt-in): run the game mesh in Internet mode via this relay.
-      ...(process.env.E6I_GAME_RELAY_URL ? ['--game-relay-url', process.env.E6I_GAME_RELAY_URL] : []),
+      // Internet mode is the app default; local harness runs stay offline in LAN mode unless
+      // E6I_GAME_RELAY_URL names a relay.
+      ...(process.env.E6I_GAME_RELAY_URL ? ['--game-relay-url', process.env.E6I_GAME_RELAY_URL] : ['--lan']),
     ], { env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     this.onSpawn?.(this.child); // E6.4: recorded in the run's ownership manifest
     this.child.stdout.pipe(this.log);

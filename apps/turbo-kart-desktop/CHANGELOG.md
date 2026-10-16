@@ -11,6 +11,10 @@
   race has no items.
 
 ### Changed
+- **Internet mode is the default.** Races connect through the game relay when the
+  computers cannot reach each other directly; no launch option needed. `--lan` opts into
+  direct-only LAN mode. (0.4.0 defaulted to LAN mode, which cannot connect computers on
+  different or isolating networks.)
 - Same network as 0.4.0 (no DNA change). 0.5 keeps its data in a new directory.
 
 ## 0.4.0 — 2026-10-16 (demo release)

@@ -1,13 +1,20 @@
-// E6.INTERNET: the opt-in --game-relay-url launch option and what main passes
-// to the sidecar. Absent, everything must be exactly the v0.1 LAN behaviour.
+// The game mesh's network mode and what main passes to the sidecar. Internet mode
+// (the default relay) unless --lan; --game-relay-url replaces the relay.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sidecarNetArgs, validateArgs, validateGameRelayUrl } from '../src/main/cli';
+import { DEFAULT_GAME_RELAY_URL, sidecarNetArgs, validateArgs, validateGameRelayUrl } from '../src/main/cli';
 
-test('no --game-relay-url is LAN mode: no extra sidecar arguments', () => {
+test('no option is Internet mode with the default relay', () => {
   const o = validateArgs({ profile: 'demo' });
+  assert.equal(o.gameRelayUrl, DEFAULT_GAME_RELAY_URL);
+  assert.deepEqual(sidecarNetArgs(o), ['--relay-url', DEFAULT_GAME_RELAY_URL]);
+});
+
+test('--lan is LAN mode: no extra sidecar arguments; it cannot be combined with a relay', () => {
+  const o = validateArgs({ profile: 'demo', lan: true });
   assert.equal(o.gameRelayUrl, undefined);
   assert.equal(sidecarNetArgs(o), undefined);
+  assert.throws(() => validateArgs({ lan: true, gameRelayUrl: DEFAULT_GAME_RELAY_URL }), /cannot be combined/);
 });
 
 test('a clean https relay selects Internet mode for the sidecar', () => {
