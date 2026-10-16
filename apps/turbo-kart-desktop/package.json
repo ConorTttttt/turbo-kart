@@ -1,9 +1,9 @@
 {
   "name": "dev.holochain-moq.turbo-kart",
-  "version": "0.1.2",
-  "description": "Turbo Kart Rally desktop app (Electron + Holochain, WP10)",
-  "homepage": "https://github.com/holochain-moq/holochain-moq",
-  "author": "holochain-moq",
+  "version": "0.4.0",
+  "description": "Turbo Kart Rally: peer-to-peer kart racing (Electron + Holochain)",
+  "homepage": "https://github.com/tannerconor55/turbo-kart",
+  "author": "tannerconor55",
   "private": true,
   "license": "CAL-1.0",
   "engines": {

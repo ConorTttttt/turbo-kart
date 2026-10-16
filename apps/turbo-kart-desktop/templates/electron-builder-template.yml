@@ -47,7 +47,7 @@ linux:
   # --no-sandbox where unprivileged user namespaces are restricted.
   target:
     - deb
-  maintainer: holochain-moq
+  maintainer: tannerconor55
   category: Game
 npmRebuild: false
 # publish:

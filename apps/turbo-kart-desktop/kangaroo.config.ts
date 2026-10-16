@@ -3,7 +3,7 @@ import { defineConfig } from './src/main/defineConfig';
 export default defineConfig({
   appId: 'dev.holochain-moq.turbo-kart',
   productName: 'Turbo Kart Rally',
-  version: '0.1.2',
+  version: '0.4.0',
   macOSCodeSigning: false,
   windowsEVCodeSigning: false,
   fallbackToIndexHtml: false,
