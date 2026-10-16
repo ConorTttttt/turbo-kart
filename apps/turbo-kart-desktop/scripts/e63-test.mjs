@@ -233,7 +233,9 @@ try {
   metrics.sustained = {
     seconds: secs,
     fps: fps.map((f) => Math.round(f.fps)),
-    publishHz: [rate(0, (s) => s.net.stats.sent - (s.net.stats.aiSent || 0)), rate(1, (s) => s.net.stats.sent - (s.net.stats.aiSent || 0))],
+    // Human kart sends only: `sent` counts every send, an AI bundle (aiBundles) and a
+    // host progress snapshot (progressSent) once each; aiSent counts AI states, not sends.
+    publishHz: [0, 1].map((i) => rate(i, (s) => s.net.stats.sent - (s.net.stats.aiBundles || 0) - (s.net.stats.progressSent || 0))),
     receiveHz: [rate(0, (s) => s.net.stats.received), rate(1, (s) => s.net.stats.received)],
     sidecarPublishedHz: [rate(0, (s) => s.session.kart.published), rate(1, (s) => s.session.kart.published)],
     sidecarReceivedHz: [rate(0, (s) => s.session.kart.received), rate(1, (s) => s.session.kart.received)],

@@ -246,7 +246,9 @@ try {
   const rate = (i, f) => (f(s2[i]) - f(s1[i])) / secs;
   metrics.sustained = {
     seconds: secs, fps: fps.map((f) => Math.round(f.fps)),
-    humanPublishHz: [0, 1].map((i) => rate(i, (s) => s.net.stats.sent - s.net.stats.aiSent)), humanReceiveHz: [0, 1].map((i) => rate(i, (s) => s.net.stats.received)),
+    // Human kart sends only: `sent` counts every send, an AI bundle (aiBundles) and a
+    // host progress snapshot (progressSent) once each; aiSent counts AI states, not sends.
+    humanPublishHz: [0, 1].map((i) => rate(i, (s) => s.net.stats.sent - (s.net.stats.aiBundles || 0) - (s.net.stats.progressSent || 0))), humanReceiveHz: [0, 1].map((i) => rate(i, (s) => s.net.stats.received)),
     aiPublishHz: rate(0, (s) => s.net.stats.aiSent), aiReceiveHz: rate(1, (s) => s.net.stats.aiReceived),
     sidecarAiPublishedHz: rate(0, (s) => s.session.race.counters.ai_published), sidecarAiReceivedHz: rate(1, (s) => s.session.race.counters.ai_received),
     aiCounters: s2.map((s) => s.session.race.counters), kartCounters: s2.map((s) => s.session.kart), skippedLocal: s2.map((s) => s.net.stats.skipped),
