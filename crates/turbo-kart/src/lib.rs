@@ -80,10 +80,27 @@ pub struct TrackSpec {
 /// speed, +16 boost, +7 star, all at once). Even on a corner-cutting line 75 %
 /// of the centreline that is about 22 s. 20 s is therefore physically
 /// impossible, not merely unlikely. A normal lap is about 55 s.
-pub const TRACKS: [TrackSpec; 1] = [TrackSpec {
-    id: "palm-cove",
-    min_lap_ms: 20_000,
-}];
+// Cup ids bind a fixed three-course playlist in the game. They are session
+// championships, not individual-course leaderboard submissions. Keep these ids
+// aligned with src/championship.js and src/maps/index.js.
+pub const TRACKS: [TrackSpec; 16] = [
+    TrackSpec { id: "palm-cove", min_lap_ms: 20_000 },
+    TrackSpec { id: "mirror-cove", min_lap_ms: 5_000 },
+    TrackSpec { id: "coastal-switchbacks", min_lap_ms: 5_000 },
+    TrackSpec { id: "coral-lagoon", min_lap_ms: 5_000 },
+    TrackSpec { id: "frost-fang", min_lap_ms: 5_000 },
+    TrackSpec { id: "dune-canyon", min_lap_ms: 5_000 },
+    TrackSpec { id: "palm-boulevard", min_lap_ms: 5_000 },
+    TrackSpec { id: "glacier-express", min_lap_ms: 5_000 },
+    TrackSpec { id: "mirage-highway", min_lap_ms: 5_000 },
+    TrackSpec { id: "vine-temple", min_lap_ms: 5_000 },
+    TrackSpec { id: "avalanche-pass", min_lap_ms: 5_000 },
+    TrackSpec { id: "scorpion-mine", min_lap_ms: 5_000 },
+    TrackSpec { id: "cove-cup", min_lap_ms: 5_000 },
+    TrackSpec { id: "adventure-cup", min_lap_ms: 5_000 },
+    TrackSpec { id: "speed-cup", min_lap_ms: 5_000 },
+    TrackSpec { id: "skill-cup", min_lap_ms: 5_000 },
+];
 
 pub const MIN_PLAYERS: u8 = 2;
 pub const MAX_PLAYERS: u8 = 8;
@@ -834,6 +851,19 @@ mod tests {
             relay_urls: vec!["https://relay.example/".into()],
             access: LobbyAccess::Public,
         }
+    }
+
+    #[test]
+    fn all_courses_and_cups_are_valid_lobby_selections() {
+        for spec in TRACKS {
+            let mut config = lobby();
+            config.track_id = spec.id.into();
+            config.validate().unwrap();
+            assert!(spec.min_lap_ms > 0);
+        }
+        let mut config = lobby();
+        config.track_id = "unknown-cup".into();
+        assert!(config.validate().is_err());
     }
 
     fn result(finish: Option<u32>, lap: Option<u32>) -> RaceResult {

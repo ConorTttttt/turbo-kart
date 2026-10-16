@@ -17,7 +17,11 @@ The web game itself is expected next to this repo at `../turbo-kart-rally-main`
 Release binaries (`.deb`, `.zip`, `.webhapp`) are not in git; they are attached to
 [GitHub Releases](https://github.com/tannerconor55/turbo-kart/releases).
 
-Note: the zome wasm embeds the build machine's paths, so building the DNAs from this
-checkout produces different DNA hashes than the holochain-moq builds, and
-`yarn pack:happs` will refuse until `apps/turbo-kart-desktop/expected-dna-hashes.json`
-is deliberately updated.
+The championship-cup update deliberately refreshed
+`apps/turbo-kart-desktop/expected-dna-hashes.json` from this checkout, including
+the new game validation for six maps and two cups. All multiplayer machines need
+matching rebuilt hApps and sidecars. See the game's
+[championship notes](../turbo-kart-rally-main/docs/CHAMPIONSHIPS.md).
+
+The zome wasm embeds build paths: building from another checkout path changes the
+DNA hashes. `yarn pack:happs` checks those hashes before packaging.
