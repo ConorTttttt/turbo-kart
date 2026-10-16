@@ -19,7 +19,7 @@ Release binaries (`.deb`, `.zip`, `.webhapp`) are not in git; they are attached 
 
 The championship-cup update deliberately refreshed
 `apps/turbo-kart-desktop/expected-dna-hashes.json` from this checkout, including
-the new game validation for six maps and two cups. All multiplayer machines need
+the new game validation for twelve courses and four cups. All multiplayer machines need
 matching rebuilt hApps and sidecars. See the game's
 [championship notes](../turbo-kart-rally-main/docs/CHAMPIONSHIPS.md).
 
