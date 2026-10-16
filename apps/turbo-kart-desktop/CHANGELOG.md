@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 — unreleased
+## 0.5.0 — 2026-10-16
 
 ### Added
 - Items online: all eight items in online races and championships. The host rolls every
