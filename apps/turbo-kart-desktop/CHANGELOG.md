@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0 — unreleased
+
+### Added
+- Items online: all eight items in online races and championships. The host rolls every
+  box and decides every hit; each racer applies the hits on its own kart, and everyone sees
+  every effect. Self items (rocket booster, ghost mode, grappling hook) start the moment you
+  press. See the game's `docs/ONLINE-ITEMS.md`. Desktop test: `scripts/e66-items-test.mjs`.
+- Items turn on only when every racer runs 0.5.0; with an older build in the lobby the
+  race has no items.
+
+### Changed
+- Same network as 0.4.0 (no DNA change). 0.5 keeps its data in a new directory.
+
 ## 0.4.0 — 2026-10-16 (demo release)
 
 First release from the standalone `tannerconor55/turbo-kart` repository. A new
