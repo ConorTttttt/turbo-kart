@@ -10,6 +10,13 @@
 - Items turn on only when every racer runs 0.5.0; with an older build in the lobby the
   race has no items.
 
+### Fixed
+- Championship: a player who closes the game (or loses the network) between courses no
+  longer leaves the others stuck. After 10 s the host continues the cup without them (they
+  score 0 for the remaining courses); if the host is the one who left, the others see the
+  standings so far, "CUP ENDED · THE HOST LEFT" and NEW LOBBY. Desktop test:
+  `scripts/e67-cup-leave-test.mjs`.
+
 ### Changed
 - **Internet mode is the default.** Races connect through the game relay when the
   computers cannot reach each other directly; no launch option needed. `--lan` opts into
