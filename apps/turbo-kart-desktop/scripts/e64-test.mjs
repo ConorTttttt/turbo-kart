@@ -106,8 +106,10 @@ async function newRace(alice, bob, n) {
   await act(bob, '.multiplayer-screen [data-action=submit]');
   await waitText(bob, 'You are an active member');
   await waitText(alice, '2/2 active');
-  await until('host endpoint readiness', () => alice.page(`!!document.querySelector('[data-action=race-start]') && !document.querySelector('[data-action=race-start]').disabled`), Boolean, 120_000);
-  await act(alice, '[data-action=race-start]');
+  // The button re-checks endpoint bindings on every lobby refresh; under netem a slow
+  // DHT read can disable it again between the readiness check and the click, so retry.
+  await until('host endpoint readiness and race start', () => alice.page(`!!document.querySelector('[data-action=race-start]') && !document.querySelector('[data-action=race-start]').disabled`)
+    .then((ready) => ready && act(alice, '[data-action=race-start]').then(() => true, () => false)), Boolean, 120_000);
   await waitText(alice, 'Admission locked'); await waitText(bob, 'Admission locked');
   const record = (await alice.value('raceGet', lobbyId)).race;
   await act(alice, '[data-action=enter-race]');
